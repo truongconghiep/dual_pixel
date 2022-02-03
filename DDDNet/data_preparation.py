@@ -95,33 +95,35 @@ class dpd_disp_dataset(Dataset):
             item = self.getitem(i)
             dataset.append(item)
 
-        train_size = int(0.8 * self.full_dataset)
-        test_size = self.full_dataset - train_size
-        train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+        train_size = int(0.6 * self.full_dataset)
+        validation_size = int(0.2 * self.full_dataset)
+        test_size = self.full_dataset - train_size - validation_size
+        train_dataset, test_dataset = random_split(dataset, [train_size, validation_size + test_size])
+        validation_set, test_set = random_split(test_dataset, [validation_size, test_size])
         
-        return dataset, train_dataset, test_dataset
+        return dataset, train_dataset, validation_set, test_set
 
 
 if __name__ == "__main__": 
-    # crop_img = RandomCropImage("./data/ICCP2020_DP_dataset/", "./data/dpd_disp.txt", "./data/ICCP2020_DP_dataset_new/", \
-    #     480, 640, 100)
+    crop_img = RandomCropImage("./data/ICCP2020_DP_dataset/", "./data/dpd_disp.txt", "./data/ICCP2020_DP_dataset_new/", \
+        480, 640, 150)
 
-    # crop_img.crop()
+    crop_img.crop()
 
 
-    # f = read_image_filename("./data/ICCP2020_DP_dataset_new/left")
-    # print(f)
+    f = read_image_filename("./data/ICCP2020_DP_dataset_new/left")
+    print(f)
 
-    dataset = dpd_disp_dataset("./data/ICCP2020_DP_dataset_new/left", \
-        "./data/ICCP2020_DP_dataset_new/right", "./data/ICCP2020_DP_dataset_new/gt", transform = transforms.ToTensor())
+    # dataset = dpd_disp_dataset("./data/ICCP2020_DP_dataset_new/left", \
+    #     "./data/ICCP2020_DP_dataset_new/right", "./data/ICCP2020_DP_dataset_new/gt", transform = transforms.ToTensor())
 
-    dp_dataset, train_set, test_set = dataset.create_dataset()
+    # dp_dataset, train_set, test_set = dataset.create_dataset()
 
-    image = dp_dataset[0]['gt']
+    # image = dp_dataset[0]['gt']
 
-    print(image)
-    print("train_set ", len(train_set))
-    print("test_set ", len(test_set))
+    # print(image)
+    # print("train_set ", len(train_set))
+    # print("test_set ", len(test_set))
 
 
             

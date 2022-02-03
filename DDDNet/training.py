@@ -26,6 +26,8 @@ import copy
 import shutil
 from data_preparation import *
 import matplotlib.pyplot as plt
+import os.path
+import time
 
 parser = argparse.ArgumentParser(description="DDD")
 parser.add_argument('--start_epoch',type = int, default = 1)
@@ -54,43 +56,12 @@ np.random.seed(1234)
 torch.manual_seed(1234)
 torch.cuda.manual_seed_all(1234)
 
-print("init data folders - NYU dataset")
 
-test_dataset = GoProDataset_test(
-    img_list = args.img_list_t,
-    root_dir = args.input_test_file,
-    transform = transforms.ToTensor()
-    )
-test_dataloader = DataLoader(test_dataset, batch_size = args.batchsize, shuffle=False, num_workers=args.workers)
-
-mse = nn.MSELoss().cuda()
+# mse = nn.MSELoss().cuda()
 
 Estd_stereo = model_test.YRStereonet_3D()
 Estd_stereo = torch.nn.DataParallel(Estd_stereo, device_ids=GPU)
 Estd_stereo.cuda()
-
-checkpoint = torch.load(str('./checkpoints/' + METHOD + "/Estd" + ".pkl"))
-
-# print(checkpoint.keys())
-
-Estd_stereo.load_state_dict(torch.load(str('./checkpoints/' + METHOD + "/Estd" + ".pkl")), strict=False)
-print("ini load Estd " + " success")
-
-# print(Estd_stereo)
-
-
-
-
-
-
-
-# Print model's state_dict
-# print("Model's state_dict:")
-# for param_tensor in Estd_stereo.state_dict():
-#     print(param_tensor, "\t", Estd_stereo.state_dict()[param_tensor].size())
-
-
-
 
 
 def save_ckp(state, is_best, checkpoint_path, best_model_path):
@@ -127,6 +98,7 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
     
     returns trained model
     """
+    
     # initialize tracker for minimum validation loss
     valid_loss_min = valid_loss_min_input 
     
@@ -138,92 +110,127 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
         ###################
         # train the model #
         ###################
-        model.train()
+        # path_to_data = enumerate(loaders['train'])
+        # # print(batch_idx)
+        # print(path_to_data)
+        
         for batch_idx, path_to_data in enumerate(loaders['train']):
-            # print(batch_idx)
+            start = time.time()
+            model.train()
+            # print(path_to_data['left'])
+            # print(path_to_data['right'])
+            # print(path_to_data['gt'])
+            number_of_samples = len(path_to_data['left'])
+            for i in range(number_of_samples):
             # print(path_to_data)
-            left_img = transform(Image.open(path_to_data['left'])).unsqueeze(0)
-            right_img = transform(Image.open(path_to_data['right'])).unsqueeze(0)
-            gt = transform(Image.open(path_to_data['gt'])).unsqueeze(0)
+                left_img = transform(Image.open(path_to_data['left'][i])).unsqueeze(0)
+                right_img = transform(Image.open(path_to_data['right'][i])).unsqueeze(0)
+                gt = transform(Image.open(path_to_data['gt'][i]))
 
-            # move to GPU
-            if use_cuda:
-                left, right, target = left_img.cuda(), right_img.cuda(), gt.cuda()
-            ## find the loss and update the model parameters accordingly
-            # clear the gradients of all optimized variables
-            optimizer.zero_grad()
-            # forward pass: compute predicted outputs by passing inputs to the model
-            output = model(left, right)
-            # calculate the batch loss
-            loss = criterion(output, target)
-            # backward pass: compute gradient of the loss with respect to model parameters
-            loss.backward()
-            # perform a single optimization step (parameter update)
-            optimizer.step()
-            ## record the average training loss, using something like
-            ## train_loss = train_loss + ((1 / (batch_idx + 1)) * (loss.data - train_loss))
-            train_loss = train_loss + ((1 / (batch_idx + 1)) * (loss.data - train_loss))
+                # move to GPU
+                if use_cuda:
+                    left, right, target = left_img.cuda(), right_img.cuda(), gt.cuda()
+                ## find the loss and update the model parameters accordingly
+                # clear the gradients of all optimized variables
+                optimizer.zero_grad()
+                # forward pass: compute predicted outputs by passing inputs to the model
+                output = model(left, right)
+                # calculate the batch loss
+                loss = criterion(output, target)
+                # backward pass: compute gradient of the loss with respect to model parameters
+                loss.backward()
+                # perform a single optimization step (parameter update)
+                optimizer.step()
+                ## record the average training loss, using something like
+                ## train_loss = train_loss + ((1 / (batch_idx + 1)) * (loss.data - train_loss))
+                train_loss = train_loss + loss.data
+            train_loss = train_loss / number_of_samples
         
-        ######################    
-        # validate the model #
-        ######################
-        # model.eval()
-        # for batch_idx, (data, target) in enumerate(loaders['test']):
-        #     # move to GPU
-        #     if use_cuda:
-        #         data, target = data.cuda(), target.cuda()
-        #     ## update the average validation loss
-        #     # forward pass: compute predicted outputs by passing inputs to the model
-        #     output = model(data)
-        #     # calculate the batch loss
-        #     loss = criterion(output, target)
-        #     # update average validation loss 
-        #     valid_loss = valid_loss + ((1 / (batch_idx + 1)) * (loss.data - valid_loss))
+            ######################    
+            # validate the model #
+            ######################
+            model.eval()
+            path_to_data = next(iter(loaders['test']))
+            number_of_samples = len(path_to_data['left'])
+            for i in range(number_of_samples):    
+
+                left_img = transform(Image.open(path_to_data['left'][i])).unsqueeze(0)
+                right_img = transform(Image.open(path_to_data['right'][i])).unsqueeze(0)
+                gt = transform(Image.open(path_to_data['gt'][i]))
+                # move to GPU
+                if use_cuda:
+                    left, right, target = left_img.cuda(), right_img.cuda(), gt.cuda()
+                ## update the average validation loss
+                # forward pass: compute predicted outputs by passing inputs to the model
+                output = model(left, right)
+                # calculate the batch loss
+                loss = criterion(output, target)
+                # update average validation loss 
+                valid_loss = valid_loss + loss.data
+            valid_loss = valid_loss / number_of_samples
+            end = time.time()
+            print(f'batch idx = {batch_idx}, training loss = {train_loss}, validation loss = {valid_loss}, took {end - start} second')
             
-        # # calculate average losses
-        # train_loss = train_loss/len(loaders['train'].dataset)
-        # valid_loss = valid_loss/len(loaders['test'].dataset)
-
-        # # print training/validation statistics 
-        # print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
-        #     epoch, 
-        #     train_loss,
-        #     valid_loss
-        #     ))
+        # print training/validation statistics 
+        print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
+            epoch, 
+            train_loss,
+            valid_loss
+            ))
         
-        # # create checkpoint variable and add important data
-        # checkpoint = {
-        #     'epoch': epoch + 1,
-        #     'valid_loss_min': valid_loss,
-        #     'state_dict': model.state_dict(),
-        #     'optimizer': optimizer.state_dict(),
-        # }
+        # create checkpoint variable and add important data
+        checkpoint = {
+            'epoch': epoch + 1,
+            'valid_loss_min': valid_loss,
+            'state_dict': model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+        }
         
-        # # save checkpoint
-        # save_ckp(checkpoint, False, checkpoint_path, best_model_path)
+        # save checkpoint
+        save_ckp(checkpoint, False, checkpoint_path, best_model_path)
         
-        # ## TODO: save the model if validation loss has decreased
-        # if valid_loss <= valid_loss_min:
-        #     print('Validation loss decreased ({:.6f} --> {:.6f}).  Saving model ...'.format(valid_loss_min,valid_loss))
-        #     # save checkpoint as best model
-        #     save_ckp(checkpoint, True, checkpoint_path, best_model_path)
-        #     valid_loss_min = valid_loss
+        ## TODO: save the model if validation loss has decreased
+        if valid_loss <= valid_loss_min:
+            print('Validation loss decreased ({:.6f} --> {:.6f}).  Saving model ...'.format(valid_loss_min,valid_loss))
+            # save checkpoint as best model
+            save_ckp(checkpoint, True, checkpoint_path, best_model_path)
+            valid_loss_min = valid_loss
             
     # return trained model
     return model
 
 
-
+print("Preparing dataset")
 dataset = dpd_disp_dataset("./data/ICCP2020_DP_dataset_new/left", \
         "./data/ICCP2020_DP_dataset_new/right", "./data/ICCP2020_DP_dataset_new/gt", transform = transforms.ToTensor())
 
-dp_dataset, train_set, test_set = dataset.create_dataset()
+dp_dataset, train_set, validation_set, test_set = dataset.create_dataset()
+print(f'training set: {len(train_set)}, validation_set: {len(validation_set)} test set: {len(test_set)}')
 
-loaders = {'train':train_set, 'test':test_set}
 
-criterion = nn.MSELoss()
-optimizer = optim.Adam(Estd_stereo.parameters(), lr=0.0001)
+training_loader = torch.utils.data.DataLoader(train_set, batch_size=20, shuffle=True, num_workers=0)
+testing_loader = torch.utils.data.DataLoader(test_set, batch_size=5, shuffle=True, num_workers=0)
+loaders = {'train':training_loader, 'test':testing_loader}
 
+criterion = nn.MSELoss().cuda()
 use_cuda = torch.cuda.is_available()
-trained_model = train(1, 3, np.Inf, loaders, Estd_stereo, optimizer, criterion, use_cuda,\
-     "./checkpoint/current_checkpoint.pt", "./best_model/best_model.pt")
+optimizer = optim.Adam(Estd_stereo.parameters(), lr=0.0001)
+epoch = 3
+
+print("Start training ... ")
+path_to_best_model = './checkpoints/best_model.pt'
+if os.path.isfile(path_to_best_model):
+    best_model = torch.load(path_to_best_model)
+    valid_loss_min_input = best_model['valid_loss_min']
+    start_epoch = best_model['epoch']
+    Estd_stereo.load_state_dict(best_model['state_dict'])
+    optimizer.load_state_dict(best_model['optimizer'])
+else:
+    valid_loss_min_input = np.Inf
+    start_epoch = 0
+    Estd_stereo.load_state_dict(torch.load(str('./checkpoints/' + METHOD + "/Estd" + ".pkl")), strict=False)
+    print ("File not exist")
+
+
+trained_model = train(start_epoch, epoch, valid_loss_min_input, loaders, Estd_stereo, optimizer, criterion, use_cuda,\
+     "./checkpoints/current_checkpoint.pt", "./checkpoints/best_model.pt")
