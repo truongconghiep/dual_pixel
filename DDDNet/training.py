@@ -28,6 +28,7 @@ from data_preparation import *
 import matplotlib.pyplot as plt
 import os.path
 import time
+import datetime
 
 parser = argparse.ArgumentParser(description="DDD")
 parser.add_argument('--start_epoch',type = int, default = 1)
@@ -82,7 +83,7 @@ def save_ckp(state, is_best, checkpoint_path, best_model_path):
 
 
 def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimizer, \
-    criterion, use_cuda, checkpoint_path, best_model_path):
+    criterion, use_cuda, checkpoint_path, best_model_path, log_file):
     """
     Keyword arguments:
     start_epochs -- the real part (default 0.0)
@@ -98,7 +99,7 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
     
     returns trained model
     """
-    
+    log_file = open(log_file, 'w')
     # initialize tracker for minimum validation loss
     valid_loss_min = valid_loss_min_input 
     
@@ -169,15 +170,19 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
                 valid_loss = valid_loss + loss.data
             valid_loss = valid_loss / number_of_samples
             end = time.time()
-            print(f'batch idx = {batch_idx}, training loss = {train_loss}, validation loss = {valid_loss}, took {end - start} second')
+            info = f'batch idx = {batch_idx}, training loss = {train_loss}, validation loss = {valid_loss}, took {end - start} second'
+            print(info)
+            log_file.writelines(info)
             
-        # print training/validation statistics 
-        print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
+        # print training/validation statistics
+        info = 'Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
             epoch, 
             train_loss,
             valid_loss
-            ))
-        
+            )
+        print(info)
+        log_file.writelines(info)
+
         # create checkpoint variable and add important data
         checkpoint = {
             'epoch': epoch + 1,
@@ -191,10 +196,15 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
         
         ## TODO: save the model if validation loss has decreased
         if valid_loss <= valid_loss_min:
-            print('Validation loss decreased ({:.6f} --> {:.6f}).  Saving model ...'.format(valid_loss_min,valid_loss))
+            info = 'Validation loss decreased ({:.6f} --> {:.6f}).  Saving model ...'.format(valid_loss_min,valid_loss)
+            print(info)
+            print(info)
+            log_file.writelines(info)
             # save checkpoint as best model
             save_ckp(checkpoint, True, checkpoint_path, best_model_path)
             valid_loss_min = valid_loss
+        
+        log_file.close()
             
     # return trained model
     return model
@@ -231,6 +241,10 @@ else:
     Estd_stereo.load_state_dict(torch.load(str('./checkpoints/' + METHOD + "/Estd" + ".pkl")), strict=False)
     print ("File not exist")
 
+current_time = str(datetime.datetime.now())
+log_filename = current_time.replace("-", "_")
+log_filename = log_filename.replace(":", "_")
+log_filename = log_filename.replace(".", "_") + ".txt"
 
 trained_model = train(start_epoch, epoch, valid_loss_min_input, loaders, Estd_stereo, optimizer, criterion, use_cuda,\
-     "./checkpoints/current_checkpoint.pt", "./checkpoints/best_model.pt")
+     "./checkpoints/current_checkpoint.pt", "./checkpoints/best_model.pt", log_filename)
