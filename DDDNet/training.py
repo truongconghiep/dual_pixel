@@ -36,7 +36,7 @@ parser.add_argument('--batchsize',type = int, default = 8)
 parser.add_argument('--gpu',type=int, default=1)
 parser.add_argument('--input_test_file', type=str, default ="./data/simudata/NYU/")
 parser.add_argument('--img_list_t', type=str, default ="./data/nyu_test.txt")
-parser.add_argument('--output_file', type=str, default ="test_results/DDDsys/")
+parser.add_argument('--output_file', type=str, default ="test_results/DDD_disp/")
 parser.add_argument('--modelname', type=str, default = "model_nyu", help="model_nyu")
 parser.add_argument('--workers', type=int, help='number of data loading workers', default=1)
 args = parser.parse_args()
@@ -118,9 +118,6 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
         for batch_idx, path_to_data in enumerate(loaders['train']):
             start = time.time()
             model.train()
-            # print(path_to_data['left'])
-            # print(path_to_data['right'])
-            # print(path_to_data['gt'])
             number_of_samples = len(path_to_data['left'])
             for i in range(number_of_samples):
             # print(path_to_data)
@@ -151,7 +148,7 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
             # validate the model #
             ######################
             model.eval()
-            path_to_data = next(iter(loaders['test']))
+            path_to_data = next(iter(loaders['valid']))
             number_of_samples = len(path_to_data['left'])
             for i in range(number_of_samples):    
 
@@ -209,6 +206,47 @@ def train(start_epochs, n_epochs, valid_loss_min_input, loaders, model, optimize
     # return trained model
     return model
 
+def test(loaders, model, optimizer, criterion, use_cuda):
+    pscale = 0.0
+
+    print("Testing...")
+    model.eval()
+
+    with torch.no_grad():
+    
+        psnr = []
+        errors_m = []
+        valid_loss = 0.0
+        transform = transforms.ToTensor()
+
+        for batch_idx, path_to_data in enumerate(loaders['test']):
+            number_of_samples = len(path_to_data['left'])
+            for i in range(number_of_samples):
+            # print(path_to_data)
+                left_img = transform(Image.open(path_to_data['left'][i])).unsqueeze(0)
+                right_img = transform(Image.open(path_to_data['right'][i])).unsqueeze(0)
+                gt = transform(Image.open(path_to_data['gt'][i]))
+
+                # move to GPU
+                if use_cuda:
+                    left, right, target = left_img.cuda(), right_img.cuda(), gt.cuda()
+                ## find the loss and update the model parameters accordingly
+                # clear the gradients of all optimized variables
+                optimizer.zero_grad()
+                # forward pass: compute predicted outputs by passing inputs to the model
+                output = model(left, right)
+                filenames = os.path.basename(path_to_data['left'][i])
+                for i in range(output.size(0)):
+                    torchvision.utils.save_image(output[i].data, OUT_DIR + '/' + filenames + '.jpg')
+                # calculate the batch loss
+                loss = criterion(output, target)
+                ## record the average training loss, using something like
+                valid_loss = valid_loss + loss.data
+            valid_loss = valid_loss / number_of_samples
+            info = f'batch idx = {batch_idx}, valid loss = {valid_loss}'
+            print(info)
+        
+ 
 
 print("Preparing dataset")
 dataset = dpd_disp_dataset("./data/ICCP2020_DP_dataset_new/left", \
@@ -219,8 +257,9 @@ print(f'training set: {len(train_set)}, validation_set: {len(validation_set)} te
 
 
 training_loader = torch.utils.data.DataLoader(train_set, batch_size=20, shuffle=True, num_workers=0)
+validation_loader = torch.utils.data.DataLoader(validation_set, batch_size=5, shuffle=True, num_workers=0)
 testing_loader = torch.utils.data.DataLoader(test_set, batch_size=5, shuffle=True, num_workers=0)
-loaders = {'train':training_loader, 'test':testing_loader}
+loaders = {'train':training_loader, 'valid':validation_loader, 'test':testing_loader}
 
 criterion = nn.MSELoss().cuda()
 use_cuda = torch.cuda.is_available()
@@ -248,3 +287,5 @@ log_filename = log_filename.replace(".", "_") + ".txt"
 
 trained_model = train(start_epoch, epoch, valid_loss_min_input, loaders, Estd_stereo, optimizer, criterion, use_cuda,\
      "./checkpoints/current_checkpoint.pt", "./checkpoints/best_model.pt", log_filename)
+
+test(loaders, Estd_stereo, optimizer, criterion, use_cuda)
